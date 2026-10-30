@@ -26,6 +26,12 @@ def load_key(env_file: str | None) -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["serve"]:                     # crowdtest serve [--port 8720] [--env-file PATH]: the local web page
+        from crowdtest.web import serve
+        opt = lambda k: argv[argv.index(k) + 1] if k in argv else None
+        serve(int(opt("--port") or 8720), key_loaded=load_key(opt("--env-file")))
+        return 0
     ap = argparse.ArgumentParser(prog="crowdtest", description="Simulated visitors try a goal on your website and report where they got stuck.")
     ap.add_argument("url")
     ap.add_argument("--goal", required=True, help='what visitors try to do, e.g. "find the price and sign up for the free plan"')

@@ -50,17 +50,20 @@ def estimate_cost(n: int, max_steps: int, model: str = MODEL) -> float:
     return n * max_steps * (TOKENS_PER_STEP * pin + 600 * pout) / 1e6
 
 
-async def run_one(p: Persona, url: str, goal: str, max_steps: int, model: str, sem: asyncio.Semaphore) -> dict:
+async def run_one(p: Persona, url: str, goal: str, max_steps: int, model: str, sem: asyncio.Semaphore, progress: dict | None = None) -> dict:
     from browser_use import Agent, BrowserProfile
     from browser_use.llm import ChatAnthropic
 
     host = urlparse(url).hostname or ""
+    prog = progress.setdefault(p.id, {"name": p.name, "status": "queued", "step": 0}) if progress is not None else {}
     async with sem:
         t0 = time.time()
+        prog.update(status="running")
         out = {"persona": p.id, "name": p.name, "profile": p.profile, "device": p.device}
         try:
             agent = Agent(task=task_prompt(p, url, goal), llm=ChatAnthropic(model=model, max_tokens=8192),
                           output_model_schema=Visit, calculate_cost=True,
+                          register_new_step_callback=lambda _state, _output, step: prog.update(step=step),
                           browser_profile=BrowserProfile(headless=True, window_size=p.viewport, viewport=p.viewport,
                                                          allowed_domains=[host, f"*.{host}"]))
             hist = await agent.run(max_steps=max_steps)
@@ -79,10 +82,16 @@ async def run_one(p: Persona, url: str, goal: str, max_steps: int, model: str, s
         except Exception as e:                        # one failed persona must not lose the others
             out.update(finished=False, steps=0, seconds=round(time.time() - t0), visit=None, final_text=None,
                        errors=[f"{type(e).__name__}: {e}"[:300]], urls=[], tokens_in=0, tokens_out=0, cost_usd=0.0, last_screenshot=None)
+        prog.update(status="done" if out.get("visit") else "failed", step=out.get("steps", 0))
         return out
 
 
-async def run_all(personas: list[Persona], url: str, goal: str, max_steps: int = 25, model: str = MODEL, concurrency: int = 2) -> list[dict]:
+async def run_all(personas: list[Persona], url: str, goal: str, max_steps: int = 25, model: str = MODEL, concurrency: int = 2,
+                  progress: dict | None = None) -> list[dict]:
+    """progress (optional): filled live with {persona_id: {name, status, step}} for a UI to poll."""
     os.environ.setdefault("ANONYMIZED_TELEMETRY", "false")
     sem = asyncio.Semaphore(concurrency)
-    return await asyncio.gather(*(run_one(p, url, goal, max_steps, model, sem) for p in personas))
+    if progress is not None:
+        for p in personas:
+            progress.setdefault(p.id, {"name": p.name, "status": "queued", "step": 0})
+    return await asyncio.gather(*(run_one(p, url, goal, max_steps, model, sem, progress) for p in personas))

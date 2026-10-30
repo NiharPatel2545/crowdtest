@@ -44,3 +44,16 @@ def test_cost_guard_and_dry_run(capsys):
     assert main(["https://example.com", "--goal", "x", "--visitors", "8", "--max-steps", "400", "--max-cost", "0.5"]) == 2
     assert main(["https://example.com", "--goal", "x", "--visitors", "2", "--dry-run"]) == 0
     assert "Maya" in capsys.readouterr().out
+
+
+def test_web_page_is_local_only_and_never_shows_the_key():
+    from fastapi.testclient import TestClient
+    from crowdtest.web import STATE, app
+    STATE["key_loaded"] = False
+    c = TestClient(app, base_url="http://127.0.0.1:8720")
+    cfg = c.get("/api/config").json()
+    assert cfg["key_loaded"] is False and "sk-" not in str(cfg)
+    body = {"url": "https://example.com", "goal": "sign up please", "personas": ["rushed"]}
+    assert c.post("/api/runs", json=body, headers={"Origin": "https://evil.example"}).status_code == 403
+    assert c.post("/api/runs", json=body, headers={"Origin": "http://127.0.0.1:8720"}).status_code == 400   # no key: refused before any call
+    assert TestClient(app, base_url="http://rebind.example").get("/").status_code == 403

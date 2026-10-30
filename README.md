@@ -38,6 +38,17 @@ $env:ANTHROPIC_API_KEY = "<your key>"
 
 browser-use needs a Chromium install; if it is missing, run `uvx playwright install chromium`.
 
+### Web page
+
+```powershell
+.venv\Scripts\python.exe -m crowdtest serve --env-file C:\path\to\.env
+```
+
+Open http://127.0.0.1:8720: enter the site and the goal, tick the visitors, see the cost estimate, press **Start the test**.
+Progress shows live per visitor and the report opens on the page when they finish. One test at a time, and the server
+refuses anything estimated above US$2. It listens on this computer only and answers only its own page; the API key is
+never sent to the browser.
+
 Options: `--visitors N` (1-8 from the built-in library), `--persona-file my_customers.json` (your own list of
 `{id, name, profile, behaviour, device}`), `--max-steps`, `--concurrency`, `--model` (default `claude-haiku-5-5`),
 `--max-cost` (refuses to start above this estimate, default US$1), `--env-file` (reads only the ANTHROPIC_API_KEY line),
