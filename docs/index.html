@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>crowdtest</title>
+<meta name="description" content="Hundreds of simulated people read your website and tell you what confused them, what was missing and what stopped them. A free local engine, or cents per run.">
+<style>
+:root{--bg:#0d1014;--card:#151a20;--ink:#eef2f6;--mut:#97a1ad;--dim:#5b6571;--line:#212831;--blue:#5b8def;--yes:#4fbf74;--maybe:#e3b341;--no:#ee6b5c}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;font-size:18px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+.wrap{max-width:1160px;margin:0 auto;padding:0 24px}@media(max-width:600px){.wrap{padding:0 16px}}
+header{display:flex;justify-content:space-between;align-items:center;padding:26px 0}
+.brand{display:flex;gap:10px;align-items:center;font-weight:700;font-size:19px;text-decoration:none}
+.dots{display:grid;grid-template-columns:repeat(3,6px);gap:3px}.dots i{width:6px;height:6px;border-radius:50%;background:var(--blue)}.dots i:nth-child(n+7){opacity:.45}
+header nav{display:flex;gap:24px;color:var(--mut);font-size:15px}header nav a{text-decoration:none}header nav a:hover{color:var(--ink)}
+.hero{padding:70px 0 40px;display:grid;gap:44px}@media(min-width:980px){.hero{grid-template-columns:1fr 1fr;align-items:center}}
+h1{font-size:clamp(2.8rem,6vw,5.2rem);line-height:.95;letter-spacing:-.045em;font-weight:800;margin:0}
+.lede{color:var(--mut);font-size:1.2rem;max-width:32rem;margin:22px 0 0}
+.ctas{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px}
+.btn{display:inline-flex;align-items:center;min-height:50px;padding:0 22px;border-radius:4px;font-weight:700;font-size:16px;text-decoration:none;border:1px solid var(--line)}
+.btn.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}.btn.primary:hover{background:#fff}.btn:not(.primary):hover{border-color:var(--mut)}
+.crowd{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:26px}
+.crowd b{font-size:1.15rem}.crowd small{display:block;color:var(--mut);font-size:14px;margin:4px 0 18px}
+#grid{display:grid;grid-template-columns:repeat(20,1fr);gap:6px}
+#grid i{aspect-ratio:1;border-radius:50%;background:#262e38;transition:background .4s}
+#grid i.y{background:var(--yes)}#grid i.m{background:var(--maybe)}#grid i.n{background:var(--no)}
+.legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:16px;color:var(--mut);font-size:14px}.legend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;background:var(--c)}
+.shot{margin:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--card)}.shot img{display:block;width:100%;height:auto}
+.cap{color:var(--dim);font-size:14px;margin:12px 0 0}
+section{padding:110px 0 0}
+h2{font-size:clamp(2rem,3.8vw,3.2rem);line-height:1;letter-spacing:-.035em;font-weight:800;margin:0;max-width:18ch}
+.sub{color:var(--mut);font-size:1.1rem;max-width:40rem;margin:18px 0 0}
+.steps{display:grid;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-top:44px}
+@media(min-width:860px){.steps{grid-template-columns:repeat(4,1fr)}}
+.steps div{background:var(--bg);padding:24px 22px;display:grid;gap:8px;align-content:start}.steps .n{color:var(--blue);font-weight:700;font-size:14px}.steps b{font-size:1.1rem}.steps p{margin:0;color:var(--mut);font-size:15.5px}
+.modes{display:grid;gap:16px;margin-top:44px}@media(min-width:860px){.modes{grid-template-columns:repeat(3,1fr)}}
+.modes div{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:24px;display:grid;gap:8px;align-content:start}.modes b{font-size:1.1rem}.modes p{margin:0;color:var(--mut);font-size:15.5px}.modes .p{font-size:1.9rem;font-weight:800;letter-spacing:-.03em}
+.two{display:grid;gap:16px;margin-top:44px}@media(min-width:980px){.two{grid-template-columns:1fr 1fr}}
+pre{margin:0;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:20px 22px;overflow:auto;font:14.5px/1.7 ui-monospace,Consolas,monospace;color:#d9dfe6}pre .c{color:var(--dim)}
+.note{margin-top:28px;color:var(--mut);font-size:16px;max-width:52rem}.note b{color:var(--ink)}
+footer{margin-top:120px;border-top:1px solid var(--line);padding:36px 0 50px;color:var(--dim);font-size:14px}
+footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px}footer a{color:var(--mut);text-decoration:none}footer a:hover{color:var(--ink)}
+:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="brand" href="#"><span class="dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>crowdtest</a>
+    <nav><a href="#how">How it works</a><a href="#run">Run it</a><a href="https://github.com/NiharPatel2545/crowdtest">GitHub</a></nav>
+  </header>
+
+  <div class="hero">
+    <div>
+      <h1>Watch a crowd try your site.</h1>
+      <p class="lede">Hundreds of simulated people, each with their own age, job, patience and doubts, read your pages and tell you what confused them, what was missing and what stopped them. Before you spend a cent on ads.</p>
+      <div class="ctas"><a class="btn primary" href="https://github.com/NiharPatel2545/crowdtest">Get it on GitHub</a><a class="btn" href="#run">Run it locally</a></div>
+    </div>
+    <div class="crowd" aria-label="Illustration: a crowd of 100 people reacting one by one">
+      <b>The crowd</b><small id="tally">100 people reading your site</small>
+      <div id="grid"></div>
+      <div class="legend"><span style="--c:var(--yes)">Would do it</span><span style="--c:var(--maybe)">Maybe</span><span style="--c:var(--no)">Would not</span></div>
+    </div>
+  </div>
+
+  <figure class="shot"><img src="landing.jpg" width="1600" height="1000" alt="The crowdtest page: a form for the site, the goal and the audience, next to the crowd grid"></figure>
+  <p class="cap">The page: your site, what people should try to do, and who the site is for.</p>
+
+  <section id="how">
+    <h2>From a link to a list of fixes.</h2>
+    <div class="steps">
+      <div><span class="n">1</span><b>Read the site</b><p>A plain crawler reads your main pages, the way a visitor would.</p></div>
+      <div><span class="n">2</span><b>Build a crowd</b><p>People generated from mixed traits: age, job, tech comfort, patience, budget, doubts. Or describe your audience, e.g. "small cafe owners".</p></div>
+      <div><span class="n">3</span><b>Each person reacts</b><p>Would they do what you want? What got in their way? In their own words. The grid fills in live.</p></div>
+      <div><span class="n">4</span><b>Get the report</b><p>Problems grouped and ranked by how many people hit them, each with a suggested fix.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The report</h2>
+    <p class="sub">A real run: 50 simulated farmers reading agrishieldai.com. The top problem they raised (unclear how to start a field check) was real, and was fixed on the live site.</p>
+    <figure class="shot" style="margin-top:36px"><img src="report.jpg" width="1440" height="900" loading="lazy" alt="A crowdtest report: 50 people reacted, the problems that got in the way ranked by mentions, each with a fix"></figure>
+  </section>
+
+  <section>
+    <h2>Free, or cents.</h2>
+    <div class="modes">
+      <div><span class="p">$0</span><b>Free local engine</b><p>Runs on your computer through Ollama with an open model. No account, no key.</p></div>
+      <div><span class="p">~$0.03</span><b>Crowd of 50</b><p>With Claude Haiku: one short call per person, cached instructions, grouped results. 100 people cost a few cents.</p></div>
+      <div><span class="p">~$0.006</span><b>Per real-browser visitor</b><p>Visitors mode: AI agents click through your site in a real browser and report where they got stuck.</p></div>
+    </div>
+    <p class="note"><b>Honest limits:</b> simulated people lean agreeable and can't replace real users. Use it to find the obvious problems before real people see them, then check with real people.</p>
+  </section>
+
+  <section id="run">
+    <h2>Run it locally</h2>
+    <p class="sub">It runs on your own computer; a hard cost cap stops any run that would go over US$2. Windows PowerShell:</p>
+    <div class="two">
+<pre>git clone https://github.com/NiharPatel2545/crowdtest
+cd crowdtest
+uv venv --python 3.12 .venv
+uv pip install --python .venv\Scripts\python.exe -e .</pre>
+<pre><span class="c"># the web page: open http://127.0.0.1:8720</span>
+.\.venv\Scripts\python.exe -m crowdtest serve --env-file .env
+
+<span class="c"># or a crowd from the command line (free local model by default)</span>
+.\.venv\Scripts\python.exe -m crowdtest crowd https://yoursite.com --goal "decide whether to try it" --people 100</pre>
+    </div>
+  </section>
+</div>
+
+<footer><div class="wrap"><span>crowdtest. Open source. Built by Nihar Patel.</span><span><a href="https://github.com/NiharPatel2545/crowdtest">GitHub</a></span></div></footer>
+
+<script>
+// the crowd grid fills in one person at a time, then starts again
+(() => {
+  const g = document.getElementById('grid'), tally = document.getElementById('tally')
+  const dots = Array.from({ length: 100 }, () => g.appendChild(document.createElement('i')))
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    dots.forEach((d, i) => d.className = i % 10 < 4 ? 'y' : i % 10 < 8 ? 'm' : 'n'); tally.textContent = '100 of 100 people have reacted'; return
+  }
+  let i = 0
+  const order = dots.map((_, k) => k).sort(() => Math.random() - .5)
+  setInterval(() => {
+    if (i === 100) { dots.forEach(d => d.className = ''); i = 0; order.sort(() => Math.random() - .5) }
+    const r = Math.random()
+    dots[order[i]].className = r < .38 ? 'y' : r < .8 ? 'm' : 'n'
+    i++; tally.textContent = `${i} of 100 people have reacted`
+  }, 90)
+})()
+</script>
+</body>
+</html>
