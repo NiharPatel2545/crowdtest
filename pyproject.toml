@@ -1,0 +1,16 @@
+[project]
+name = "crowdtest"
+version = "0.1.0"
+description = "Simulated visitors (AI browser agents) try a goal on your website and report where they got stuck."
+requires-python = ">=3.11"
+dependencies = ["browser-use>=0.7", "anthropic>=1.0", "pydantic>=2"]
+
+[project.scripts]
+crowdtest = "crowdtest.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["crowdtest"]
