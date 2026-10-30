@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from crowdtest import personas as P
 from crowdtest import localguard, report
-from crowdtest.run import MODEL, PRICE_PER_M, estimate_cost, run_all
+from crowdtest.run import MODEL, PRICE_PER_M, Engine, estimate_cost, run_all
 
 HARD_CAP_USD = 2.00            # no test from this page may be estimated above this
 app = FastAPI(title="crowdtest", docs_url=None, redoc_url=None, openapi_url=None)
@@ -26,7 +26,9 @@ class RunRequest(BaseModel):
     goal: str = Field(..., min_length=5, max_length=500)
     personas: list[str] = Field(..., min_length=1, max_length=8)
     max_steps: int = Field(20, ge=5, le=40)
-    model: str = MODEL
+    provider: str = Field("anthropic", pattern="^(anthropic|ollama)$")
+    model: str = Field(MODEL, max_length=80)
+    lean: bool = True
 
 
 @app.get("/api/config")
@@ -36,25 +38,26 @@ def config() -> dict:
 
 
 @app.get("/api/estimate")
-def estimate(n: int = 3, max_steps: int = 20, model: str = MODEL) -> dict:
-    return {"usd": round(estimate_cost(max(1, min(n, 8)), max(5, min(max_steps, 40)), model), 3)}
+def estimate(n: int = 3, max_steps: int = 20, model: str = MODEL, provider: str = "anthropic", lean: bool = True) -> dict:
+    return {"usd": round(estimate_cost(max(1, min(n, 8)), max(5, min(max_steps, 40)), model, lean, provider == "ollama"), 3)}
 
 
 @app.post("/api/runs")
 async def start(req: RunRequest) -> dict:
-    if not STATE["key_loaded"]:
-        raise HTTPException(400, "No Anthropic API key loaded. Restart with ANTHROPIC_API_KEY set or --env-file.")
+    if req.provider == "anthropic" and not STATE["key_loaded"]:
+        raise HTTPException(400, "No Anthropic API key loaded. Restart with ANTHROPIC_API_KEY set or --env-file, or pick the free local model.")
     if any(r["status"] == "running" for r in RUNS.values()):
         raise HTTPException(409, "A test is already running. Wait for it to finish.")
     url = req.url.strip() if "://" in req.url else "https://" + req.url.strip()
     if urlparse(url).scheme not in ("http", "https") or not urlparse(url).hostname:
         raise HTTPException(422, "That does not look like a website address.")
-    if req.model not in PRICE_PER_M:
+    if req.provider == "anthropic" and req.model not in PRICE_PER_M:
         raise HTTPException(422, "Unknown model.")
+    eng = Engine(req.provider, req.model, None, lean=req.lean)
     people = [p for p in P.LIBRARY if p.id in set(req.personas)]
     if not people:
         raise HTTPException(422, "Pick at least one visitor.")
-    est = estimate_cost(len(people), req.max_steps, req.model)
+    est = estimate_cost(len(people), req.max_steps, eng.model, eng.lean, eng.free)
     if est > HARD_CAP_USD:
         raise HTTPException(422, f"Estimated US${est:.2f} is above the US${HARD_CAP_USD:.2f} cap. Use fewer visitors or steps.")
     rid = uuid.uuid4().hex[:10]
@@ -62,7 +65,7 @@ async def start(req: RunRequest) -> dict:
 
     async def job():
         try:
-            visits = await run_all(people, url, req.goal, req.max_steps, req.model, concurrency=2, progress=run["progress"])
+            visits = await run_all(people, url, req.goal, req.max_steps, eng, concurrency=1 if eng.free else 2, progress=run["progress"])
             issues, synth = await asyncio.to_thread(report.synthesise, visits, req.goal)
             s = report.summary(visits, synth)
             run.update(status="done", summary=s, issues=issues, html=report.to_html(url, req.goal, visits, issues, s))
@@ -107,7 +110,9 @@ iframe{width:100%;height:85vh;border:1px solid var(--line);border-radius:16px;ma
 <label>What should visitors try to do?<textarea id="goal" rows="2" required placeholder="e.g. find the price and sign up for the free plan"></textarea></label>
 <div><div class="mut" style="font-size:14px;margin-bottom:6px">Visitors</div><div class="ppl" id="ppl"></div></div>
 <div class="row"><label>Max steps per visitor<input id="steps" type="number" min="5" max="40" value="20"></label>
-<label>Model<select id="model"></select></label><div><div class="mut" style="font-size:14px">Estimated cost</div><b id="est">…</b></div></div>
+<label>Engine<select id="prov"><option value="anthropic">Claude (paid, best)</option><option value="ollama">Ollama on this PC (free)</option></select></label>
+<label>Model<input id="model" list="models"><datalist id="models"></datalist></label>
+<label>Mode<select id="lean"><option value="true">Lean (no screenshots, cheapest)</option><option value="false">Full (sees screenshots)</option></select></label><div><div class="mut" style="font-size:14px">Estimated cost</div><b id="est">…</b></div></div>
 <div class="row"><button id="go">Start the test</button><span id="st" aria-live="polite"></span></div>
 <p class="mut" style="margin:0;font-size:13px">Visitors use only fake test data, never pay or send messages, and stay on your site. Test sites you own or may test. They find usability problems; they do not predict demand.</p></form>
 <div class="box" id="live" hidden><b>Visitors at work</b><div id="prog"></div></div><iframe id="out" title="Report" hidden></iframe>
@@ -115,13 +120,14 @@ iframe{width:100%;height:85vh;border:1px solid var(--line);border-radius:16px;ma
 const $ = s => document.querySelector(s), esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c])
 let cfg
 const chosen = () => [...document.querySelectorAll('#ppl input:checked')].map(i => i.value)
-async function est(){ const r = await (await fetch(`/api/estimate?n=${chosen().length}&max_steps=${$('#steps').value}&model=${$('#model').value}`)).json()
-  $('#est').textContent = `up to US$${r.usd.toFixed(2)}`; $('#est').className = r.usd > cfg.cap_usd ? 'err' : '' }
+async function est(){ const r = await (await fetch(`/api/estimate?n=${chosen().length}&max_steps=${$('#steps').value}&model=${encodeURIComponent($('#model').value)}&provider=${$('#prov').value}&lean=${$('#lean').value}`)).json()
+  $('#est').textContent = r.usd === 0 ? 'free' : `up to US$${r.usd.toFixed(2)}`; $('#est').className = r.usd > cfg.cap_usd ? 'err' : '' }
 async function init(){ cfg = await (await fetch('/api/config')).json()
   $('#key').innerHTML = cfg.key_loaded ? '' : '<p class="box warn">No Anthropic API key loaded, so tests cannot start. Restart with ANTHROPIC_API_KEY set or --env-file.</p>'
   $('#ppl').innerHTML = cfg.personas.map((p, i) => `<label><input type="checkbox" value="${p.id}" ${i < 3 ? 'checked' : ''}><span><b>${esc(p.name)}</b> · ${p.device}<small>${esc(p.profile)}</small></span></label>`).join('')
-  $('#model').innerHTML = cfg.models.map(m => `<option ${m === cfg.default_model ? 'selected' : ''}>${m}</option>`).join('')
-  document.querySelectorAll('#ppl input, #steps, #model').forEach(el => el.addEventListener('change', est)); est() }
+  $('#models').innerHTML = [...cfg.models, 'qwen3:8b', 'qwen2.5:7b', 'llama3.1:8b'].map(m => `<option value="${m}">`).join(''); $('#model').value = cfg.default_model
+  $('#prov').addEventListener('change', () => { $('#model').value = $('#prov').value === 'ollama' ? 'qwen3:8b' : cfg.default_model; est() })
+  document.querySelectorAll('#ppl input, #steps, #model, #lean').forEach(el => el.addEventListener('change', est)); est() }
 async function poll(id){ const r = await (await fetch('/api/runs/' + id)).json(), max = +$('#steps').value
   $('#prog').innerHTML = Object.values(r.progress).map(p => `<div class="v"><span>${esc(p.name)} <span class="mut">· ${p.status}</span></span><span style="flex:0 0 40%"><span class="mut" style="font-size:13px">step ${p.step}</span><div class="bar"><i style="width:${p.status === 'done' ? 100 : Math.min(100, 100 * p.step / max)}%"></i></div></span></div>`).join('')
   if (r.status === 'running') return setTimeout(() => poll(id), 2000)
@@ -130,9 +136,9 @@ async function poll(id){ const r = await (await fetch('/api/runs/' + id)).json()
   const s = r.summary; $('#st').className = ''; $('#st').textContent = `${s.achieved} of ${s.visitors} reached the goal · cost US$${s.cost_usd.toFixed(3)}`
   $('#out').srcdoc = r.html; $('#out').hidden = false }
 $('#f').addEventListener('submit', async e => { e.preventDefault(); $('#go').disabled = true; $('#st').className = ''; $('#st').textContent = 'Starting…'; $('#out').hidden = true
-  try { const r = await fetch('/api/runs', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url: $('#url').value, goal: $('#goal').value, personas: chosen(), max_steps: +$('#steps').value, model: $('#model').value})})
+  try { const r = await fetch('/api/runs', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url: $('#url').value, goal: $('#goal').value, personas: chosen(), max_steps: +$('#steps').value, provider: $('#prov').value, model: $('#model').value, lean: $('#lean').value === 'true'})})
     const d = await r.json(); if (!r.ok) throw new Error(typeof d.detail === 'string' ? d.detail : (d.detail?.[0]?.msg || 'Could not start.'))
-    $('#st').textContent = `Running (estimate up to US$${d.estimate_usd.toFixed(2)}). This takes a few minutes.`; $('#live').hidden = false; poll(d.id)
+    $('#st').textContent = d.estimate_usd ? `Running (estimate up to US$${d.estimate_usd.toFixed(2)}). This takes a few minutes.` : 'Running on this computer (free). This takes a few minutes.'; $('#live').hidden = false; poll(d.id)
   } catch(err) { $('#st').className = 'err'; $('#st').textContent = err.message; $('#go').disabled = false } })
 init()
 </script></main></body></html>"""

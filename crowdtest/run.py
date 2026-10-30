@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
@@ -12,7 +13,38 @@ from crowdtest.personas import Persona
 
 MODEL = "claude-haiku-5-5"
 PRICE_PER_M = {"claude-haiku-5-5": (0.10, 0.50), "claude-sonnet-5-5": (2.00, 10.00), "claude-opus-5-5": (4.00, 20.00)}
-TOKENS_PER_STEP = 12_000      # rough input per agent step (page state + history); used only for the up-front estimate
+# rough input tokens per agent step, measured on real runs; used only for the up-front estimate
+TOKENS_PER_STEP = {"full": 15_000, "lean": 7_000}
+
+
+@dataclass
+class Engine:
+    """Which model drives the visitors. provider: anthropic (paid), ollama (free, on your GPU) or openai (any
+    OpenAI-compatible server: LM Studio, vLLM, llama.cpp, OpenRouter...). lean: no screenshots, short memory, no
+    reasoning step, so far fewer tokens per step; full mode lets visitors see the page as an image."""
+    provider: str = "anthropic"
+    model: str = MODEL
+    base_url: str | None = None
+    lean: bool = True
+
+    @property
+    def free(self) -> bool:
+        """Runs on this computer, so no per-token bill (a remote OpenAI-compatible service is not counted as free)."""
+        local = urlparse(self.base_url or "").hostname in ("localhost", "127.0.0.1")
+        return self.provider == "ollama" or (self.provider == "openai" and local)
+
+    def llm(self):
+        if self.provider == "ollama":
+            from browser_use.llm import ChatOllama
+            return ChatOllama(model=self.model, host=self.base_url or "http://localhost:11434")
+        if self.provider == "openai":
+            from browser_use.llm import ChatOpenAI
+            return ChatOpenAI(model=self.model, base_url=self.base_url, api_key=os.environ.get("OPENAI_API_KEY", "not-needed"))
+        from browser_use.llm import ChatAnthropic
+        return ChatAnthropic(model=self.model, max_tokens=8192)
+
+    def agent_options(self) -> dict:
+        return {"use_vision": False, "flash_mode": True, "use_thinking": False, "max_history_items": 8} if self.lean else {}
 
 
 class Visit(BaseModel):
@@ -35,6 +67,8 @@ Go to {url} and try to do this: {goal}
 
 Behave like this person, not like an expert tester: notice what they would notice, get confused where they would, and give up
 where they would. Stay on this website; do not use search engines or other sites.
+If the page shows a loading message, spinner or "working" text, wait for it to finish (up to about 30 seconds, as a real
+person would) before deciding something failed.
 
 Rules for test data and safety:
 - Never enter real personal information. If a form insists, use obviously fake test data: name "Test User", email test@example.com.
@@ -45,14 +79,15 @@ Rules for test data and safety:
 When you finish (or give up), report your visit honestly in the requested structure."""
 
 
-def estimate_cost(n: int, max_steps: int, model: str = MODEL) -> float:
+def estimate_cost(n: int, max_steps: int, model: str = MODEL, lean: bool = True, free: bool = False) -> float:
+    if free:
+        return 0.0
     pin, pout = PRICE_PER_M.get(model, PRICE_PER_M[MODEL])
-    return n * max_steps * (TOKENS_PER_STEP * pin + 600 * pout) / 1e6
+    return n * max_steps * (TOKENS_PER_STEP["lean" if lean else "full"] * pin + (250 if lean else 600) * pout) / 1e6
 
 
-async def run_one(p: Persona, url: str, goal: str, max_steps: int, model: str, sem: asyncio.Semaphore, progress: dict | None = None) -> dict:
+async def run_one(p: Persona, url: str, goal: str, max_steps: int, engine: Engine, sem: asyncio.Semaphore, progress: dict | None = None) -> dict:
     from browser_use import Agent, BrowserProfile
-    from browser_use.llm import ChatAnthropic
 
     host = urlparse(url).hostname or ""
     prog = progress.setdefault(p.id, {"name": p.name, "status": "queued", "step": 0}) if progress is not None else {}
@@ -61,7 +96,7 @@ async def run_one(p: Persona, url: str, goal: str, max_steps: int, model: str, s
         prog.update(status="running")
         out = {"persona": p.id, "name": p.name, "profile": p.profile, "device": p.device}
         try:
-            agent = Agent(task=task_prompt(p, url, goal), llm=ChatAnthropic(model=model, max_tokens=8192),
+            agent = Agent(task=task_prompt(p, url, goal), llm=engine.llm(), **engine.agent_options(),
                           output_model_schema=Visit, calculate_cost=True,
                           register_new_step_callback=lambda _state, _output, step: prog.update(step=step),
                           browser_profile=BrowserProfile(headless=True, window_size=p.viewport, viewport=p.viewport,
@@ -71,7 +106,7 @@ async def run_one(p: Persona, url: str, goal: str, max_steps: int, model: str, s
             usage = getattr(hist, "usage", None)
             tin = getattr(usage, "total_prompt_tokens", 0) or 0
             tout = getattr(usage, "total_completion_tokens", 0) or 0
-            pin, pout = PRICE_PER_M.get(model, PRICE_PER_M[MODEL])
+            pin, pout = (0.0, 0.0) if engine.free else PRICE_PER_M.get(engine.model, PRICE_PER_M[MODEL])
             shots = [s for s in (hist.screenshot_paths() or []) if s]
             out.update(
                 finished=hist.is_done(), steps=hist.number_of_steps(), seconds=round(time.time() - t0),
@@ -86,12 +121,13 @@ async def run_one(p: Persona, url: str, goal: str, max_steps: int, model: str, s
         return out
 
 
-async def run_all(personas: list[Persona], url: str, goal: str, max_steps: int = 25, model: str = MODEL, concurrency: int = 2,
+async def run_all(personas: list[Persona], url: str, goal: str, max_steps: int = 25, engine: Engine | None = None, concurrency: int = 2,
                   progress: dict | None = None) -> list[dict]:
     """progress (optional): filled live with {persona_id: {name, status, step}} for a UI to poll."""
     os.environ.setdefault("ANONYMIZED_TELEMETRY", "false")
+    engine = engine or Engine()
     sem = asyncio.Semaphore(concurrency)
     if progress is not None:
         for p in personas:
             progress.setdefault(p.id, {"name": p.name, "status": "queued", "step": 0})
-    return await asyncio.gather(*(run_one(p, url, goal, max_steps, model, sem, progress) for p in personas))
+    return await asyncio.gather(*(run_one(p, url, goal, max_steps, engine, sem, progress) for p in personas))

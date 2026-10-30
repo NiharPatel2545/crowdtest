@@ -54,10 +54,29 @@ Options: `--visitors N` (1-8 from the built-in library), `--persona-file my_cust
 `--max-cost` (refuses to start above this estimate, default US$1), `--env-file` (reads only the ANTHROPIC_API_KEY line),
 `--json`, `--dry-run` (prints the prompts and estimate, calls nothing).
 
-## Cost
+## Cost, and how to make it free
 
-Haiku 5.5 costs US$0.10 per million input tokens and US$0.50 per million output. A visitor of about 25 steps costs roughly
-US$0.02-0.04, so a five-visitor test is a few cents. The report shows the measured cost.
+Each visitor drives a real browser, so every step sends the model the page and the visit so far. That is far heavier than
+simulations where agents only swap short messages, which is why those can run thousands of agents cheaply.
+
+Measured on a real site (Claude Haiku 5.5, US$0.10 / US$0.50 per million tokens):
+
+| Mode | Tokens per step | Cost per visitor | 10 visitors |
+|---|---|---|---|
+| lean (default: no screenshots, short memory) | about 6-8k | about US$0.006 | about US$0.06 |
+| full (`--full`: visitors see screenshots) | about 12-18k | about US$0.02 | about US$0.20 |
+| local model (`--provider ollama`) | any | free | free |
+
+Free, on your own GPU: install [Ollama](https://ollama.com), pull a model that handles tool calls well (for example
+`ollama pull qwen3:8b`, about 5 GB, fits a 12 GB laptop GPU), then
+
+```powershell
+.venv\Scripts\python.exe -m crowdtest https://yoursite.com --goal "sign up" --provider ollama --model qwen3:8b
+```
+
+Any OpenAI-compatible server works too (LM Studio, vLLM, llama.cpp): `--provider openai --base-url http://localhost:1234/v1 --model <name>`.
+Small local models get lost more often than Claude, so expect lower goal rates; use them for quick checks and Claude for the final run.
+Without an Anthropic key the findings are grouped by simple counting instead of by Claude.
 
 ## Tests
 
