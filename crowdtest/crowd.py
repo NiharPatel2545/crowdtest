@@ -207,7 +207,7 @@ def run_crowd(url: str, goal: str, n: int, backend: Backend, pages: list[dict], 
     crowd = people(n, audience=audience)
     lock = threading.Lock()
     if progress is not None:
-        progress.update(total=n, done=0, failed=0)
+        progress.update(total=n, done=0, failed=0, marks=[])        # marks: y / m / n / x per person, in finishing order
 
     def one(p: Person) -> dict:
         try:
@@ -220,6 +220,7 @@ def run_crowd(url: str, goal: str, n: int, backend: Backend, pages: list[dict], 
             with lock:
                 progress["done"] += 1
                 progress["failed"] += r is None
+                progress["marks"].append("x" if r is None else {"yes": "y", "no": "n"}.get(str(r.get("would_complete") or "").lower(), "m"))
         return {"person": asdict(p), "reaction": r, "error": err}
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
