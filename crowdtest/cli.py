@@ -27,6 +27,8 @@ def load_key(env_file: str | None) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["crowd"]:
+        return crowd_main(argv[1:])
     if argv[:1] == ["serve"]:                     # crowdtest serve [--port 8720] [--env-file PATH]: the local web page
         from crowdtest.web import serve
         opt = lambda k: argv[argv.index(k) + 1] if k in argv else None
@@ -77,6 +79,55 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n{s['achieved']} of {s['visitors']} reached the goal; median {s['median_steps']} steps; cost US${s['cost_usd']:.3f}")
     for i in issues[:5]:
         print(f"  [{i.get('severity', '')}] {i.get('title', '')} ({i.get('visitors', 0)} visitors)")
+    print(f"Report: {Path(a.out).resolve()}")
+    return 0
+
+
+def crowd_main(argv: list[str]) -> int:
+    """crowdtest crowd URL --goal "..." --people 300 [--provider ollama|anthropic|openai]"""
+    from crowdtest import crowd
+    ap = argparse.ArgumentParser(prog="crowdtest crowd", description="Hundreds of generated people react to your pages (one short call each).")
+    ap.add_argument("url")
+    ap.add_argument("--goal", required=True)
+    ap.add_argument("--people", type=int, default=200)
+    ap.add_argument("--audience", default="", help='who the site is for, e.g. "farmer or farm adviser" (default: the general public)')
+    ap.add_argument("--provider", choices=["ollama", "anthropic", "openai"], default="ollama", help="ollama (free, no key, default), anthropic (cheap, cached) or openai (any OpenAI-compatible server)")
+    ap.add_argument("--model")
+    ap.add_argument("--base-url")
+    ap.add_argument("--max-pages", type=int, default=8)
+    ap.add_argument("--workers", type=int, default=4, help="calls at once (keep 1-2 for a local model on one GPU)")
+    ap.add_argument("--env-file")
+    ap.add_argument("--out", default="crowd-report.html")
+    ap.add_argument("--json")
+    ap.add_argument("--dry-run", action="store_true", help="crawl and show what people will read; call no model")
+    a = ap.parse_args(argv)
+    url = a.url if "://" in a.url else "https://" + a.url
+    pages = crowd.crawl(url, a.max_pages)
+    chars = sum(len(p["text"]) for p in pages)
+    print(f"Read {len(pages)} pages ({chars:,} characters) from {url}")
+    if not pages:
+        print("Nothing readable: the site may build its pages with JavaScript only, or block plain requests.")
+        return 2
+    if a.dry_run:
+        for p in pages:
+            print(f"  {p['url']}  {p['title'][:60]}  ({len(p['text'])} chars)")
+        print(f"\nExample person: {crowd.people(1)[0].describe()}")
+        return 0
+    if a.provider == "anthropic" and not load_key(a.env_file):
+        print("Set ANTHROPIC_API_KEY or pass --env-file (or use the free --provider ollama).")
+        return 2
+    backend = crowd.Backend(a.provider, a.model, a.base_url)
+    prog = {}
+    results = crowd.run_crowd(url, a.goal, a.people, backend, pages, a.workers, prog, a.audience)
+    s = crowd.summarise(results)
+    issues = crowd.group_issues(backend, s)
+    cost = backend.cost_usd()
+    Path(a.out).write_text(report.crowd_html(url, a.goal, pages, s, issues, f"{backend.provider}/{backend.model}", cost), encoding="utf-8")
+    if a.json:
+        Path(a.json).write_text(json.dumps({"url": url, "goal": a.goal, "summary": s, "issues": issues, "results": results, "tokens": backend.tokens}, indent=1), encoding="utf-8")
+    print(f"{s['answered']} of {s['people']} people reacted; {s['would_complete_pct']}% would complete the goal; cost " + ("free" if not cost else f"US${cost:.3f}"))
+    for i in issues[:5]:
+        print(f"  {i.get('mentions', 0):>4} mentions: {i.get('title', '')}")
     print(f"Report: {Path(a.out).resolve()}")
     return 0
 

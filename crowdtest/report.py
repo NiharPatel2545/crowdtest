@@ -111,3 +111,26 @@ def to_html(url: str, goal: str, visits: list[dict], issues: list[dict], s: dict
 <h2>What got in the way</h2>{iss}<h2>Each visitor</h2>{''.join(cards)}
 <footer>Visitors are AI agents playing the people described, browsing the live site. Use this to find usability problems before real users do;
 it does not measure demand, and simulated visitors are more patient and agreeable than real ones.</footer></main></body></html>"""
+
+
+def crowd_html(url: str, goal: str, pages: list[dict], s: dict, issues: list[dict], engine: str, cost: float) -> str:
+    rows = lambda pairs: "".join(f"<li>{escape(t)} <span class='mut'>({n})</span></li>" for t, n in pairs) or "<li class='mut'>none</li>"
+    grp = "".join(f"<h3>By {escape(t)}</h3><table>" + "".join(
+        f"<tr><td>{escape(k)}</td><td>{v['people']} people</td><td><div class='bar'><i style='width:{v['would_complete_pct']}%'></i></div></td><td>{v['would_complete_pct']}%</td></tr>"
+        for k, v in g.items()) + "</table>" for t, g in s["groups"].items())
+    iss = "".join(f"<div class='issue' style='--c:var(--warn)'><span class='pill'>{i.get('mentions', i.get('people', 0))} mentions</span><h3>{escape(str(i.get('title', '')))}</h3>"
+                  + (f"<p><b>Fix:</b> {escape(str(i['fix']))}</p>" if i.get("fix") else "") + "</div>" for i in issues) or "<p>No common problems reported.</p>"
+    quotes = "".join(f"<p class='q'>“{escape(q)}” <span class='mut'>({escape(p['age'])}, {escape(p['job'])}, {escape(p['country'])}, {escape(p['device'])})</span></p>" for p, q in s["quotes"])
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Crowd test: {escape(url)}</title><style>{CSS}
+table{{width:100%;border-collapse:collapse;font-size:14px}}td{{padding:6px 8px;border-top:1px solid var(--line)}}td:nth-child(3){{width:40%}}
+.bar{{height:8px;border-radius:6px;background:var(--line);overflow:hidden}}.bar i{{display:block;height:100%;background:var(--ok)}}h3{{margin:18px 0 6px;font-size:16px}}
+</style></head><body><main><h1>Crowd test</h1><p class="mut">{escape(url)} · {len(pages)} pages read · engine {escape(engine)}</p><p><b>Goal:</b> {escape(goal)}</p>
+<div class="kpis"><div><b>{s['answered']}</b>people reacted (of {s['people']})</div><div><b>{s['would_complete_pct']}%</b>would complete the goal ({s['maybe_pct']}% maybe)</div>
+<div><b>{s['would_return_pct']}%</b>would come back</div><div><b>{'free' if not cost else f'US${cost:.2f}'}</b>cost of this test</div></div>
+<h2>What got in the way</h2>{iss}<h2>Who struggles</h2>{grp}
+<h2>Most common, word for word</h2><p><b>Confusing</b></p><ul>{rows(s['top_confusing'])}</ul><p><b>Missing</b></p><ul>{rows(s['top_missing'])}</ul><p><b>Trust</b></p><ul>{rows(s['top_trust'])}</ul>
+<h2>In their words</h2>{quotes}
+<footer>Each person is an AI playing a generated profile, reading the page text the crawler captured. Crowd mode shows how different
+people understand and trust your pages; it cannot click, so use the browsing visitors to find broken flows. Simulated people
+are more agreeable than real ones: read percentages as relative, not as a forecast.</footer></main></body></html>"""
