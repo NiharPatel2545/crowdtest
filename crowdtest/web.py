@@ -139,7 +139,13 @@ init()
 
 
 def serve(port: int = 8720, key_loaded: bool = False) -> None:
+    import socket
     import uvicorn
+    with socket.socket() as probe:                     # say so plainly if something already uses the port
+        if probe.connect_ex(("127.0.0.1", port)) == 0:
+            print(f"Port {port} is already in use: crowdtest may already be running at http://127.0.0.1:{port}. "
+                  f"Close the other window, or pick another port with --port.")
+            return
     STATE["key_loaded"] = key_loaded
     print(f"crowdtest is running: open http://127.0.0.1:{port}  (Ctrl+C to stop)" + ("" if key_loaded else "  [no API key loaded]"))
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
